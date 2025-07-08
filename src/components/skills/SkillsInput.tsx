@@ -5,6 +5,24 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Upload, Link2, Plus, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import Papa from 'papaparse';
+import mammoth from 'mammoth';
+
+// Example (dummy) values for demonstration. Replace with your real credentials for production use.
+const LINKEDIN_CLIENT_ID = '86xk1v7w6dummy';
+const LINKEDIN_REDIRECT_URI = encodeURIComponent('http://localhost:8082/linkedin-callback');
+const LINKEDIN_SCOPE = 'r_liteprofile%20r_emailaddress';
+
+const getLinkedInAuthUrl = () =>
+  `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${LINKEDIN_CLIENT_ID}&redirect_uri=${LINKEDIN_REDIRECT_URI}&scope=${LINKEDIN_SCOPE}`;
+
+const GITHUB_CLIENT_ID = 'Iv1.dummyclientid';
+const GITHUB_REDIRECT_URI = encodeURIComponent('http://localhost:8082/github-callback');
+const GITHUB_SCOPE = 'read:user user:email';
+
+const getGitHubAuthUrl = () =>
+  `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${GITHUB_REDIRECT_URI}&scope=${GITHUB_SCOPE}`;
 
 const SkillsInput = () => {
   const [manualSkills, setManualSkills] = useState('');
@@ -12,11 +30,29 @@ const SkillsInput = () => {
     'JavaScript', 'React', 'Python', 'SQL', 'Git'
   ]);
   const [newSkill, setNewSkill] = useState('');
+  const [showLinkedIn, setShowLinkedIn] = useState(false);
+  const [showGitHub, setShowGitHub] = useState(false);
+  const [showCSV, setShowCSV] = useState(false);
+  const [csvError, setCsvError] = useState('');
+  const [showUrlDialog, setShowUrlDialog] = useState(false);
+  const [resumeUrl, setResumeUrl] = useState('');
+  const [resumeUrlError, setResumeUrlError] = useState('');
 
   const addSkill = () => {
     if (newSkill.trim() && !skillsList.includes(newSkill.trim())) {
       setSkillsList([...skillsList, newSkill.trim()]);
       setNewSkill('');
+    }
+  };
+
+  const handleBulkAdd = () => {
+    const parsed = manualSkills
+      .split(',')
+      .map(skill => skill.trim())
+      .filter(skill => skill.length > 0 && !skillsList.includes(skill));
+    if (parsed.length > 0) {
+      setSkillsList([...skillsList, ...parsed]);
+      setManualSkills('');
     }
   };
 
@@ -27,9 +63,44 @@ const SkillsInput = () => {
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      console.log('File uploaded:', file.name);
       // Placeholder for file processing logic
+      console.log('File uploaded:', file.name);
     }
+  };
+
+  const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setCsvError('');
+    Papa.parse(file, {
+      complete: (results) => {
+        // Assume skills are in the first column, skip header if present
+        let data = results.data as string[][];
+        if (data.length && data[0][0].toLowerCase().includes('skill')) {
+          data = data.slice(1);
+        }
+        const newSkills = data.map(row => row[0]?.trim()).filter(Boolean);
+        if (newSkills.length === 0) {
+          setCsvError('No skills found in CSV.');
+          return;
+        }
+        setSkillsList(prev => [...prev, ...newSkills.filter(skill => !prev.includes(skill))]);
+        setShowCSV(false);
+      },
+      error: () => setCsvError('Failed to parse CSV.'),
+    });
+  };
+
+  const handleResumeUrlSubmit = async () => {
+    setResumeUrlError('');
+    if (!resumeUrl.trim()) {
+      setResumeUrlError('Please enter a valid URL.');
+      return;
+    }
+    // Placeholder: In a real app, fetch and process the file from the URL
+    setShowUrlDialog(false);
+    setResumeUrl('');
+    alert('Resume import from URL is not yet implemented.');
   };
 
   return (
@@ -63,7 +134,7 @@ const SkillsInput = () => {
                 onChange={(e) => setManualSkills(e.target.value)}
                 className="glass min-h-[100px]"
               />
-              <Button className="w-full glow-hover">
+              <Button className="w-full glow-hover" onClick={handleBulkAdd}>
                 <Plus className="w-4 h-4 mr-2" />
                 Parse & Add Skills
               </Button>
@@ -76,7 +147,12 @@ const SkillsInput = () => {
                   placeholder="Enter skill name"
                   value={newSkill}
                   onChange={(e) => setNewSkill(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addSkill()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addSkill();
+                    }
+                  }}
                   className="glass"
                 />
                 <Button onClick={addSkill} className="glow-hover">
@@ -121,11 +197,19 @@ const SkillsInput = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <Button variant="outline" className="glass glass-hover">
+              <Button
+                variant="outline"
+                className="glass glass-hover"
+                onClick={() => document.getElementById('resume-upload')?.click()}
+              >
                 <Upload className="w-4 h-4 mr-2" />
                 Browse Files
               </Button>
-              <Button variant="outline" className="glass glass-hover">
+              <Button
+                variant="outline"
+                className="glass glass-hover"
+                onClick={() => setShowUrlDialog(true)}
+              >
                 <Link2 className="w-4 h-4 mr-2" />
                 From URL
               </Button>
@@ -141,32 +225,87 @@ const SkillsInput = () => {
             Platform Integrations
           </CardTitle>
           <CardDescription>
-            Import skills from your professional profiles (Coming Soon)
+            Import skills from your professional profiles
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Button variant="outline" className="glass glass-hover h-16 flex-col" disabled>
+            <Button
+              variant="outline"
+              className="glass glass-hover h-16 flex-col"
+              onClick={() => window.location.href = getLinkedInAuthUrl()}
+            >
               <div className="w-8 h-8 bg-blue-600 rounded mb-2 flex items-center justify-center">
                 <span className="text-white text-sm font-bold">in</span>
               </div>
               LinkedIn Import
             </Button>
-            <Button variant="outline" className="glass glass-hover h-16 flex-col" disabled>
+            <Button
+              variant="outline"
+              className="glass glass-hover h-16 flex-col"
+              onClick={() => window.location.href = getGitHubAuthUrl()}
+            >
               <div className="w-8 h-8 bg-gray-900 rounded mb-2 flex items-center justify-center">
                 <span className="text-white text-sm font-bold">GH</span>
               </div>
               GitHub Analysis
             </Button>
-            <Button variant="outline" className="glass glass-hover h-16 flex-col" disabled>
+            <Button variant="outline" className="glass glass-hover h-16 flex-col" onClick={() => setShowCSV(true)}>
               <div className="w-8 h-8 bg-orange-500 rounded mb-2 flex items-center justify-center">
                 <span className="text-white text-sm font-bold">CV</span>
               </div>
               CSV Import
             </Button>
           </div>
+          {/* LinkedIn Dialog intentionally removed, as redirect is now handled directly */}
+          {/* GitHub Dialog */}
+          <Dialog open={showGitHub} onOpenChange={setShowGitHub}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>GitHub Analysis</DialogTitle>
+                <DialogDescription>
+                  Coming soon: Analyze your GitHub repositories to extract relevant skills.
+                </DialogDescription>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
+          {/* CSV Import Dialog */}
+          <Dialog open={showCSV} onOpenChange={setShowCSV}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>CSV Import</DialogTitle>
+                <DialogDescription>
+                  Upload a CSV file with your skills (one skill per row or a column named 'Skill').
+                </DialogDescription>
+              </DialogHeader>
+              <input type="file" accept=".csv" onChange={handleCSVUpload} />
+              {csvError && <p className="text-destructive text-sm mt-2">{csvError}</p>}
+            </DialogContent>
+          </Dialog>
         </CardContent>
       </Card>
+
+      {/* Resume From URL Dialog */}
+      <Dialog open={showUrlDialog} onOpenChange={setShowUrlDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import Resume from URL</DialogTitle>
+            <DialogDescription>
+              Enter the direct link to your resume (PDF, DOC, DOCX).
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="https://example.com/your-resume.pdf"
+            value={resumeUrl}
+            onChange={e => setResumeUrl(e.target.value)}
+          />
+          {resumeUrlError && <p className="text-destructive text-sm mt-2">{resumeUrlError}</p>}
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowUrlDialog(false)}>Cancel</Button>
+            <Button onClick={handleResumeUrlSubmit}>Import</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card className="glass">
         <CardHeader>
@@ -206,3 +345,8 @@ const SkillsInput = () => {
 };
 
 export default SkillsInput;
+
+  
+
+
+   
